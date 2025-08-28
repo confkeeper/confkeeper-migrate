@@ -1,0 +1,93 @@
+name: release-tag-version
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "!v*-rc*"
+      - "!v*-dev"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  binary:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write # to publish to ghcr.io
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ secrets.RELEASE_TOKEN }}
+      - run: git fetch --unshallow --quiet --tags --force
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Install UPX
+        uses: crazy-max/ghaction-upx@v3
+        with:
+          install-only: true
+      - run: /bin/bash -x build.sh ${{ github.ref_name }}
+      - name: Install GH CLI
+        uses: dev-hanz-ops/install-gh-cli-action@v0.2.1
+        with:
+          gh-cli-version: 2.71.2
+      - name: create github release
+        run: |
+          # 1. 创建或跳过Release创建
+          if ! gh release view ${{ github.ref_name }} &>/dev/null; then
+            gh release create ${{ github.ref_name }} \
+            --title "${{ github.ref_name }}" \
+            --notes-from-tag
+          fi
+      
+          # 2. 智能清理旧文件
+          for file in dist/release/*; do
+            filename=$(basename "$file")
+            gh release delete-asset ${{ github.ref_name }} "$filename" --yes 2>/dev/null || true
+          done
+      
+          # 3. 上传新文件
+          gh release upload ${{ github.ref_name }} dist/release/* --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+  docker-rootful:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write # to publish to ghcr.io
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ secrets.RELEASE_TOKEN }}
+      - run: git fetch --unshallow --quiet --tags --force
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: |-
+            buyfakett/confkeeper-migrate
+          # this will generate tags in the following format:
+          # latest
+          # 1.2
+          # 1.2.3
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: build rootful docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
