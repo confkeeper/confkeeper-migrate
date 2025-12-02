@@ -47,8 +47,9 @@ type PostgreSQLConfig struct {
 
 // MigrationConfig 迁移配置
 type MigrationConfig struct {
-	BatchSize      int `yaml:"batch_size"`
-	TimeoutSeconds int `yaml:"timeout_seconds"`
+	BatchSize      int      `yaml:"batch_size"`
+	TimeoutSeconds int      `yaml:"timeout_seconds"`
+	TenantNames    []string `yaml:"tenant_names"`
 }
 
 // LoadConfig 加载配置文件

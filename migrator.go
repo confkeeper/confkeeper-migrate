@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -90,9 +91,25 @@ func (m *Migrator) Close() {
 func (m *Migrator) MigrateTenantInfo() error {
 	log.Println("开始迁移 tenant_info 表...")
 
-	// 查询MySQL数据
-	query := `SELECT tenant_id, tenant_name, tenant_desc FROM tenant_info`
-	rows, err := m.mysqlDB.Query(query)
+	// 构建查询语句
+	var query string
+	var args []interface{}
+
+	// 根据配置决定是否过滤租户
+	if len(m.config.Migration.TenantNames) > 0 {
+		// 构建IN子句
+		placeholders := make([]string, len(m.config.Migration.TenantNames))
+		for i, tenantName := range m.config.Migration.TenantNames {
+			placeholders[i] = "?"
+			args = append(args, tenantName)
+		}
+		query = fmt.Sprintf(`SELECT tenant_id, tenant_name, tenant_desc FROM tenant_info WHERE tenant_name IN (%s)`,
+			strings.Join(placeholders, ","))
+	} else {
+		query = `SELECT tenant_id, tenant_name, tenant_desc FROM tenant_info`
+	}
+
+	rows, err := m.mysqlDB.Query(query, args...)
 	if err != nil {
 		return fmt.Errorf("查询MySQL tenant_info失败: %v", err)
 	}
@@ -156,9 +173,29 @@ func (m *Migrator) MigrateTenantInfo() error {
 func (m *Migrator) MigrateConfigInfo() error {
 	log.Println("开始迁移 config_info 表...")
 
-	// 查询MySQL数据
-	query := `SELECT data_id, group_id, content, tenant_id, type FROM config_info`
-	rows, err := m.mysqlDB.Query(query)
+	// 构建查询语句
+	var query string
+	var args []interface{}
+
+	// 根据配置决定是否过滤租户
+	if len(m.config.Migration.TenantNames) > 0 {
+		// 构建子查询，先获取指定tenant_name对应的tenant_id
+		subQuery := fmt.Sprintf(`
+			SELECT tenant_id FROM tenant_info WHERE tenant_name IN (%s)
+		`, strings.Join(strings.Split(strings.Repeat("?", len(m.config.Migration.TenantNames)), ""), ","))
+
+		// 主查询，只迁移指定租户的数据
+		query = fmt.Sprintf(`SELECT data_id, group_id, content, tenant_id, type FROM config_info WHERE tenant_id IN (%s)`, subQuery)
+
+		// 添加所有租户名称作为参数
+		for _, tenantName := range m.config.Migration.TenantNames {
+			args = append(args, tenantName)
+		}
+	} else {
+		query = `SELECT data_id, group_id, content, tenant_id, type FROM config_info`
+	}
+
+	rows, err := m.mysqlDB.Query(query, args...)
 	if err != nil {
 		return fmt.Errorf("查询MySQL config_info失败: %v", err)
 	}
