@@ -6,16 +6,17 @@ import (
 	"log"
 )
 
+var configFile string
+
 func main() {
-	configFile := flag.String("config", "config.yaml", "配置文件路径")
 	flag.Parse()
 
-	if *configFile == "" {
+	if configFile == "" {
 		log.Fatal("请指定配置文件路径，使用 --config 参数")
 	}
 
 	// 读取配置
-	config, err := LoadConfig(*configFile)
+	config, err := LoadConfig(configFile)
 	if err != nil {
 		log.Fatalf("加载配置文件失败: %v", err)
 	}
@@ -45,4 +46,9 @@ func main() {
 	fmt.Println("config_info 表迁移完成")
 
 	fmt.Println("所有表迁移完成！")
+}
+
+func init() {
+	flag.StringVar(&configFile, "config", "config.yaml", "配置文件路径")
+	flag.StringVar(&configFile, "c", "config.yaml", "配置文件路径 (short)")
 }
