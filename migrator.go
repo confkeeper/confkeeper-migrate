@@ -149,8 +149,8 @@ func (m *Migrator) MigrateTenantInfo() error {
 		}
 
 		// 检查数据是否已经存在
-		var exists bool
-		err := tx.Stmt(existsStmt).QueryRow(tenantID.String).Scan(&exists)
+		var dummy int
+		err := tx.Stmt(existsStmt).QueryRow(tenantID.String).Scan(&dummy)
 		if err != nil && err != sql.ErrNoRows {
 			tx.Rollback()
 			return fmt.Errorf("检查数据是否存在失败: %v", err)
