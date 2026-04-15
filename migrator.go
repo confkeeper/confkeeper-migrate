@@ -230,15 +230,6 @@ func (m *Migrator) MigrateConfigInfo() error {
 	}
 	defer insertStmt.Close()
 
-	// 准备PostgreSQL查询语句，用于检查数据是否存在
-	existsStmt, err := m.pgDB.Prepare(`
-		SELECT 1 FROM config_info WHERE data_id = $1 AND group_id = $2 AND tenant_id = $3
-	`)
-	if err != nil {
-		return fmt.Errorf("准备PostgreSQL查询语句失败: %v", err)
-	}
-	defer existsStmt.Close()
-
 	// 开始事务
 	tx, err := m.pgDB.Begin()
 	if err != nil {
@@ -254,33 +245,23 @@ func (m *Migrator) MigrateConfigInfo() error {
 			return fmt.Errorf("读取MySQL行数据失败: %v", err)
 		}
 
-		// 检查数据是否已经存在
-		var exists bool
-		err := tx.Stmt(existsStmt).QueryRow(dataID.String, groupID.String, tenantID.String).Scan(&exists)
-		if err != nil && err != sql.ErrNoRows {
+		// 插入到PostgreSQL
+		if _, err := tx.Stmt(insertStmt).Exec(
+			dataID.String,
+			groupID.String,
+			content.String,
+			tenantID.String,
+			configType.String,
+			1, // version 固定为1
+			currentTime,
+		); err != nil {
 			tx.Rollback()
-			return fmt.Errorf("检查数据是否存在失败: %v", err)
+			return fmt.Errorf("插入PostgreSQL数据失败: %v", err)
 		}
 
-		// 如果数据不存在，则插入
-		if err == sql.ErrNoRows {
-			if _, err := tx.Stmt(insertStmt).Exec(
-				dataID.String,
-				groupID.String,
-				content.String,
-				tenantID.String,
-				configType.String,
-				1, // version 固定为1
-				currentTime,
-			); err != nil {
-				tx.Rollback()
-				return fmt.Errorf("插入PostgreSQL数据失败: %v", err)
-			}
-
-			count++
-			if count%1000 == 0 {
-				log.Printf("已迁移 %d 条 config_info 记录", count)
-			}
+		count++
+		if count%1000 == 0 {
+			log.Printf("已迁移 %d 条 config_info 记录", count)
 		}
 	}
 
