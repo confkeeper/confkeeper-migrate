@@ -12,7 +12,7 @@ func main() {
 	flag.Parse()
 
 	if configFile == "" {
-		log.Fatal("请指定配置文件路径，使用 --config 参数")
+		log.Fatal("请指定配置文件路径，使用 --config 或 -c 参数")
 	}
 
 	// 读取配置
