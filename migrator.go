@@ -125,6 +125,15 @@ func (m *Migrator) MigrateTenantInfo() error {
 	}
 	defer insertStmt.Close()
 
+	// 准备PostgreSQL查询语句，用于检查数据是否存在
+	existsStmt, err := m.pgDB.Prepare(`
+		SELECT 1 FROM tenant_info WHERE tenant_id = $1
+	`)
+	if err != nil {
+		return fmt.Errorf("准备PostgreSQL查询语句失败: %v", err)
+	}
+	defer existsStmt.Close()
+
 	// 开始事务
 	tx, err := m.pgDB.Begin()
 	if err != nil {
@@ -139,19 +148,29 @@ func (m *Migrator) MigrateTenantInfo() error {
 			return fmt.Errorf("读取MySQL行数据失败: %v", err)
 		}
 
-		// 插入到PostgreSQL
-		if _, err := tx.Stmt(insertStmt).Exec(
-			tenantID.String,
-			tenantName.String,
-			tenantDesc.String,
-		); err != nil {
+		// 检查数据是否已经存在
+		var dummy int
+		err := tx.Stmt(existsStmt).QueryRow(tenantID.String).Scan(&dummy)
+		if err != nil && err != sql.ErrNoRows {
 			tx.Rollback()
-			return fmt.Errorf("插入PostgreSQL数据失败: %v", err)
+			return fmt.Errorf("检查数据是否存在失败: %v", err)
 		}
 
-		count++
-		if count%1000 == 0 {
-			log.Printf("已迁移 %d 条 tenant_info 记录", count)
+		// 如果数据不存在，则插入
+		if err == sql.ErrNoRows {
+			if _, err := tx.Stmt(insertStmt).Exec(
+				tenantID.String,
+				tenantName.String,
+				tenantDesc.String,
+			); err != nil {
+				tx.Rollback()
+				return fmt.Errorf("插入PostgreSQL数据失败: %v", err)
+			}
+
+			count++
+			if count%1000 == 0 {
+				log.Printf("已迁移 %d 条 tenant_info 记录", count)
+			}
 		}
 	}
 
